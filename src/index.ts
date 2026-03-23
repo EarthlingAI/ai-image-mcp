@@ -22,7 +22,7 @@ server.tool(
 	{
 		prompt: z.string().min(1).describe("Text description of the image to generate"),
 		provider: z.enum(["gemini", "openai", "replicate"]).default("gemini")
-			.describe("AI provider. gemini: fast, free, good editing. openai: best text rendering, mask-based inpainting. replicate: strong photorealism"),
+			.describe("AI provider. gemini: fast, good editing. openai: best text rendering, mask-based inpainting. replicate: strong photorealism"),
 		quality: z.enum(["low", "medium", "high"]).default("high")
 			.describe("Rendering quality. Higher = slower and more expensive"),
 		size: z.enum(["square", "landscape", "portrait"]).default("square")
