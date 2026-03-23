@@ -63,7 +63,7 @@ export function sanitizeFilename(hint?: string): string {
 }
 
 export function resolveOutputDir(): string {
-	return path.resolve(process.env.OUTPUT_DIR || "outputs");
+	return path.resolve(process.env.OUTPUT_DIR || "outputs/images");
 }
 
 export function saveImage(base64: string, format: Format, hint?: string): string {
