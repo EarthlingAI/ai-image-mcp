@@ -1,15 +1,6 @@
 # CLAUDE.md (ai-image-mcp)
 
-Multi-provider AI image generation and editing MCP server. See `README.md` for tool parameters and provider details.
-
-## Build & Run
-
-```bash
-npm install
-npm run build        # tsc → dist/
-npm run dev          # tsx watch (development)
-node dist/index.js   # stdio transport — stdout is MCP protocol, use console.error for logging
-```
+Multi-provider AI image generation and editing MCP server. Update this file when conventions or design principles change. Update `README.md` when the codebase changes (new tools, parameters, files). See `README.md` for tools, parameters, architecture, and setup.
 
 ## Design Principles
 
@@ -22,23 +13,18 @@ This server is consumed by AI agents, not humans. Every design decision flows fr
 - **Self-explanatory schemas.** Zod `.describe()` strings are the primary documentation agents see. They must be concise, accurate, and sufficient to use the tool without any external instructions. If an agent needs to read a README to use a tool correctly, the schema descriptions have failed.
 - **Errors that guide recovery.** Every error message tells the agent what to do next — missing API key errors name the env var, provider failures suggest alternatives, file-not-found errors ask for a valid path.
 
-### Architecture
+## Architecture
 
 ```
 src/
-├── index.ts              # Tool registration + dispatch (thin)
-├── utils.ts              # Types, mapping tables, image I/O (shared)
-└── providers/
-    ├── gemini.ts          # generate() + edit()
-    ├── openai.ts          # generate() + edit()
-    └── replicate.ts       # generate() + edit()
+├── index.ts        # Tool registration + dispatch (thin — no business logic)
+├── utils.ts        # Types, mapping tables, image I/O (shared cross-provider)
+└── providers/      # One file per provider, each exports generate() + edit()
 ```
 
-- **`index.ts` is a thin dispatcher.** Tool schemas, parameter validation (Zod), and routing to `providers[name].generate/edit()`. No business logic.
-- **`utils.ts` owns all cross-provider concerns.** Types, mapping tables (`SIZE_MAP`, `QUALITY_MAP`), file I/O (`saveImage`, `readImageToBase64`), and helpers (`sanitizeFilename`, `mimeTypeForFormat`). If it's used by more than one provider, it lives here.
-- **Each provider is one file exporting `generate()` and `edit()`.** Both return `ImageResult`. Provider files import from `utils.ts` only — never from each other.
+Providers import from `utils.ts` only — never from each other.
 
-### Conventions
+## Conventions
 
 - **Tabs** for indentation
 - **No `dotenv`** — the parent system passes env vars via `.mcp.json` `env` field
@@ -65,18 +51,3 @@ Follow the same pattern as `generate_image` / `edit_image`:
 2. Add `export async function toolName()` to each provider (or a subset — gate unavailable providers with a clear error)
 3. Register via `server.tool()` in `index.ts` with Zod schema + dispatch
 4. Return `{ content: [text block, image block] }` — always include the saved file path in the text block and the base64 image inline
-
-## Response Format
-
-Both tools return the same structure:
-
-```
-content: [
-  { type: "text", text: "Image saved to: <absolute_path>\nProvider: <name> | Size: <size> | Quality: <quality>" },
-  { type: "image", data: "<base64>", mimeType: "image/<format>" }
-]
-```
-
-The text block gives the agent the file path for follow-up operations (editing, embedding, referencing). The image block gives the agent visual confirmation inline.
-
-On error: `{ content: [{ type: "text", text: "Error: <message>\nTry an alternative provider: <others>" }], isError: true }`.

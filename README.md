@@ -46,6 +46,37 @@ npm run build
 
 Pass API keys as environment variables. At least one provider key is required.
 
+## Architecture
+
+```
+src/
+├── index.ts              # Tool registration + dispatch (thin)
+├── utils.ts              # Types, mapping tables, image I/O (shared)
+└── providers/
+    ├── gemini.ts          # generate() + edit()
+    ├── openai.ts          # generate() + edit()
+    └── replicate.ts       # generate() + edit()
+```
+
+- `index.ts` is a thin dispatcher — tool schemas, parameter validation (Zod), and routing. No business logic.
+- `utils.ts` owns all cross-provider concerns — types, mapping tables (`SIZE_MAP`, `QUALITY_MAP`), file I/O, helpers.
+- Each provider exports `generate()` and `edit()`, both returning `ImageResult`. Providers import from `utils.ts` only.
+
+## Response Format
+
+Both tools return:
+
+```
+content: [
+  { type: "text", text: "Image saved to: <absolute_path>\nProvider: <name> | Size: <size> | Quality: <quality>" },
+  { type: "image", data: "<base64>", mimeType: "image/<format>" }
+]
+```
+
+The text block gives the agent the file path for follow-up operations (editing, embedding, referencing). The image block gives the agent visual confirmation inline.
+
+On error: `{ content: [{ type: "text", text: "Error: <message>\nTry an alternative provider: <others>" }], isError: true }`.
+
 ## License
 
 MIT — EarthlingAI
