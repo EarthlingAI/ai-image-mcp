@@ -1,6 +1,6 @@
 # AI Image MCP
 
-Multi-provider AI image generation and editing via MCP (Model Context Protocol).
+Multi-provider AI image generation and editing via MCP (Model Context Protocol), plus a local (AI-free) background-removal tool backed by `rembg`.
 
 ## Tools
 
@@ -19,6 +19,8 @@ Generate an image from a text prompt. Saves to disk and returns the image inline
 ### `edit_image`
 Edit an existing image using a text prompt. Reads from disk, applies the edit, saves the result.
 
+> **Use `remove_background` instead for any "remove background" / "make transparent" / "cut out subject" request.** AI providers cannot reliably produce true alpha transparency — they paint a checkerboard pattern as opaque pixels.
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prompt` | string | required | Description of the edit |
@@ -28,6 +30,21 @@ Edit an existing image using a text prompt. Reads from disk, applies the edit, s
 | `size` | `square` \| `landscape` \| `portrait` | — | Output size (omit to preserve source) |
 | `format` | `png` \| `jpeg` \| `webp` | `png` | Output format |
 | `mask_path` | string | — | Mask image path (OpenAI only, white = edit region) |
+
+### `remove_background`
+Remove the background of an image locally via `rembg` — no AI provider, no API key, no network call. Produces a PNG (or WEBP) with **true alpha transparency**, not a painted checkerboard.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `image_path` | string | required | Absolute path to source image |
+| `model` | `isnet-general-use` \| `u2net` \| `u2netp` \| `silueta` \| `birefnet-general` | `isnet-general-use` | Segmentation model |
+| `alpha_matting` | boolean | `true` | Clean up soft edges (hair, fabric) via alpha matting |
+| `format` | `png` \| `webp` | `png` | Alpha-preserving output format |
+| `fg_threshold` | int (0–255) | `240` | Alpha-matting foreground threshold |
+| `bg_threshold` | int (0–255) | `10` | Alpha-matting background threshold |
+| `erode_size` | int (0–50) | `10` | Alpha-matting erode size (px) |
+
+Backed by a bundled Python sidecar (`python/remove_bg.py`) that runs in an isolated venv at `tools/ai-image-mcp/.venv/`. Provisioned by `setup/setup_deps.py` — no action needed beyond the standard install.
 
 ## Providers
 
@@ -51,16 +68,26 @@ Pass API keys as environment variables. At least one provider key is required.
 ```
 src/
 ├── index.ts              # Tool registration + dispatch (thin)
-├── utils.ts              # Types, mapping tables, image I/O (shared)
-└── providers/
-    ├── gemini.ts          # generate() + edit()
-    ├── openai.ts          # generate() + edit()
-    └── replicate.ts       # generate() + edit()
+├── utils.ts              # Types, mapping tables, image I/O, Python sidecar resolution
+├── providers/            # AI providers (network, require API keys)
+│   ├── gemini.ts          # generate() + edit()
+│   ├── openai.ts          # generate() + edit()
+│   └── replicate.ts       # generate() + edit()
+└── local/                # Local dispatchers (no network, no API keys)
+    └── rembg.ts           # removeBackground() — spawns bundled Python sidecar
+
+python/
+├── remove_bg.py          # rembg CLI wrapper, invoked by local/rembg.ts
+└── requirements.txt      # rembg + onnxruntime + pillow
+
+.venv/                    # Provisioned by setup/setup_deps.py
 ```
 
 - `index.ts` is a thin dispatcher — tool schemas, parameter validation (Zod), and routing. No business logic.
-- `utils.ts` owns all cross-provider concerns — types, mapping tables (`SIZE_MAP`, `QUALITY_MAP`), file I/O, helpers.
-- Each provider exports `generate()` and `edit()`, both returning `ImageResult`. Providers import from `utils.ts` only.
+- `utils.ts` owns all cross-provider concerns — types, mapping tables (`SIZE_MAP`, `QUALITY_MAP`), file I/O, helpers, and the Python-sidecar resolver (`resolvePythonBin`, `resolveRemoveBgScript`).
+- Each AI provider under `providers/` exports `generate()` and `edit()`, both returning `ImageResult`.
+- Each local tool under `local/` exports a single function (e.g. `removeBackground()`) that also returns `ImageResult`. Local tools may shell out to a bundled Python sidecar in `.venv/`.
+- Everything imports from `utils.ts` only — never from siblings.
 
 ## Response Format
 

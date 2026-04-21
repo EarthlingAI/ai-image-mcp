@@ -18,11 +18,17 @@ This server is consumed by AI agents, not humans. Every design decision flows fr
 ```
 src/
 ├── index.ts        # Tool registration + dispatch (thin — no business logic)
-├── utils.ts        # Types, mapping tables, image I/O (shared cross-provider)
-└── providers/      # One file per provider, each exports generate() + edit()
+├── utils.ts        # Types, mapping tables, image I/O, Python sidecar resolution
+├── providers/      # AI backends — one file per provider, each exports generate() + edit()
+└── local/          # AI-free backends that run on-machine (may shell out to python/)
+
+python/             # Bundled Python sidecar scripts invoked by src/local/
+└── remove_bg.py    # rembg CLI wrapper
+
+.venv/              # Isolated Python venv provisioned by setup/setup_deps.py
 ```
 
-Providers import from `utils.ts` only — never from each other.
+All modules import from `utils.ts` only — never from siblings. Local tools SHOULD be preferred over AI providers when a deterministic on-machine solution exists (e.g. background removal via `rembg` beats asking Gemini, which silently fakes transparency).
 
 ## Conventions
 
@@ -51,3 +57,13 @@ Follow the same pattern as `generate_image` / `edit_image`:
 2. Add `export async function toolName()` to each provider (or a subset — gate unavailable providers with a clear error)
 3. Register via `server.tool()` in `index.ts` with Zod schema + dispatch
 4. Return `{ content: [text block, image block] }` — always include the saved file path in the text block and the base64 image inline
+
+## Adding a Local (Non-AI) Tool
+
+Use this pattern when a deterministic on-machine solution exists — image processing, format conversion, compositing, etc. The `remove_background` tool is the reference implementation.
+
+1. Create `src/local/{name}.ts` — export a single function returning `Promise<ImageResult>` (for image outputs) or the appropriate shape
+2. If the tool needs Python, add a CLI script at `python/{name}.py` and append its deps to `python/requirements.txt`
+3. Resolve the bundled Python binary via `resolvePythonBin()` from `utils.ts` (guidance error thrown automatically if the venv is missing)
+4. Register in `index.ts` with a Zod schema whose `.describe()` strings steer agents AWAY from equivalent AI-provider tools when the local path is more reliable
+5. Python deps are provisioned by `setup/setup_deps.py` → `_install_ai_image_mcp` (combined npm + uv venv install)

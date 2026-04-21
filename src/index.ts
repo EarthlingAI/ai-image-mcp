@@ -2,16 +2,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { Provider, GenerateParams, EditParams } from "./utils.js";
+import type { Provider, GenerateParams, EditParams, RemoveBgParams } from "./utils.js";
 import * as gemini from "./providers/gemini.js";
 import * as openai from "./providers/openai.js";
 import * as replicate from "./providers/replicate.js";
+import * as rembgLocal from "./local/rembg.js";
 
 const providers = { gemini, openai, replicate } as const;
 
 const server = new McpServer({
 	name: "ai-image-mcp",
-	version: "1.0.0",
+	version: "1.1.0",
 });
 
 // --- generate_image ---
@@ -74,7 +75,7 @@ server.tool(
 
 server.tool(
 	"edit_image",
-	"Edit an existing image using a text prompt. Reads the source image from disk, applies the edit, and saves the result.",
+	"Edit an existing image using a text prompt. Reads the source image from disk, applies the edit, and saves the result. For background removal or making an image transparent, use `remove_background` instead — AI providers cannot reliably produce true alpha transparency.",
 	{
 		prompt: z.string().min(1).describe("Text description of the edit to apply"),
 		image_path: z.string().min(1).describe("Absolute path to the source image file"),
@@ -121,6 +122,66 @@ server.tool(
 				content: [{
 					type: "text" as const,
 					text: `Error: ${msg}\nTry an alternative provider: ${alternatives.join(", ")}`,
+				}],
+				isError: true,
+			};
+		}
+	},
+);
+
+// --- remove_background ---
+
+server.tool(
+	"remove_background",
+	"Remove the background of an image locally via rembg (no AI provider). Produces a PNG/WEBP with TRUE alpha transparency — not a painted checkerboard. Use this for any 'remove background', 'make transparent', 'cut out subject', or 'isolate foreground' request. Runs entirely offline via a bundled Python sidecar, so no API key is required and no network call is made.",
+	{
+		image_path: z.string().min(1)
+			.describe("Absolute path to the source image file"),
+		model: z.enum(["isnet-general-use", "u2net", "u2netp", "silueta", "birefnet-general"])
+			.default("isnet-general-use")
+			.describe("Segmentation model. Default `isnet-general-use` is best for portraits and general subjects. `u2netp` is lighter/faster; `birefnet-general` is a newer heavier alternative"),
+		alpha_matting: z.boolean().default(true)
+			.describe("Clean up soft edges (hair, fur, fabric) via alpha matting. Default on — turn off for speed on clean hard-edged subjects"),
+		format: z.enum(["png", "webp"]).default("png")
+			.describe("Output format. Both preserve alpha; jpeg is intentionally not offered because it can't carry transparency"),
+		fg_threshold: z.number().int().min(0).max(255).default(240)
+			.describe("Alpha-matting foreground threshold (0-255). Only used when alpha_matting=true"),
+		bg_threshold: z.number().int().min(0).max(255).default(10)
+			.describe("Alpha-matting background threshold (0-255). Only used when alpha_matting=true"),
+		erode_size: z.number().int().min(0).max(50).default(10)
+			.describe("Alpha-matting erode size in pixels. Only used when alpha_matting=true"),
+	},
+	async (params) => {
+		const bgParams: RemoveBgParams = {
+			imagePath: params.image_path,
+			model: params.model,
+			alphaMatting: params.alpha_matting,
+			format: params.format,
+			fgThreshold: params.fg_threshold,
+			bgThreshold: params.bg_threshold,
+			erodeSize: params.erode_size,
+		};
+		try {
+			const result = await rembgLocal.removeBackground(bgParams);
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: `Background removed and saved to: ${result.filePath}\nEngine: rembg (local, no AI) | Model: ${params.model} | Alpha matting: ${params.alpha_matting}`,
+					},
+					{
+						type: "image" as const,
+						data: result.base64,
+						mimeType: result.mimeType,
+					},
+				],
+			};
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			return {
+				content: [{
+					type: "text" as const,
+					text: `Error: ${msg}`,
 				}],
 				isError: true,
 			};

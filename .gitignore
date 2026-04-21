@@ -4,3 +4,6 @@ outputs/
 .env
 .env*.local
 *.tsbuildinfo
+.venv/
+__pycache__/
+*.pyc

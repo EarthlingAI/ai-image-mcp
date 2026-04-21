@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // --- Types ---
 
@@ -7,6 +8,17 @@ export type Provider = "gemini" | "openai" | "replicate";
 export type Quality = "low" | "medium" | "high";
 export type Size = "square" | "landscape" | "portrait";
 export type Format = "png" | "jpeg" | "webp";
+
+// --- Local (non-AI) background removal ---
+
+export type RembgModel =
+	| "isnet-general-use"
+	| "u2net"
+	| "u2netp"
+	| "silueta"
+	| "birefnet-general";
+
+export type AlphaFormat = "png" | "webp";
 
 export interface GenerateParams {
 	prompt: string;
@@ -23,6 +35,16 @@ export interface EditParams {
 	size?: Size;
 	format: Format;
 	maskPath?: string;
+}
+
+export interface RemoveBgParams {
+	imagePath: string;
+	model: RembgModel;
+	alphaMatting: boolean;
+	format: AlphaFormat;
+	fgThreshold: number;
+	bgThreshold: number;
+	erodeSize: number;
 }
 
 export interface ImageResult {
@@ -91,4 +113,40 @@ export function readImageToBase64(filePath: string): { base64: string; mimeType:
 			? "image/webp"
 			: "image/png";
 	return { base64: buffer.toString("base64"), mimeType };
+}
+
+// --- Local Python sidecar resolution ---
+
+export function resolveMcpRoot(): string {
+	let dir = path.dirname(fileURLToPath(import.meta.url));
+	while (!fs.existsSync(path.join(dir, "package.json"))) {
+		const parent = path.dirname(dir);
+		if (parent === dir) {
+			throw new Error("Could not locate ai-image-mcp root (no package.json found walking upward).");
+		}
+		dir = parent;
+	}
+	return dir;
+}
+
+export function resolvePythonBin(): string {
+	const root = resolveMcpRoot();
+	const py = process.platform === "win32"
+		? path.join(root, ".venv", "Scripts", "python.exe")
+		: path.join(root, ".venv", "bin", "python");
+	if (!fs.existsSync(py)) {
+		throw new Error(
+			`ai-image-mcp Python sidecar not found at ${py}. ` +
+			"Run `python setup/setup_deps.py` from the project root to provision it.",
+		);
+	}
+	return py;
+}
+
+export function resolveRemoveBgScript(): string {
+	const script = path.join(resolveMcpRoot(), "python", "remove_bg.py");
+	if (!fs.existsSync(script)) {
+		throw new Error(`remove_bg.py not found at ${script}. Reinstall via setup/setup_deps.py.`);
+	}
+	return script;
 }
