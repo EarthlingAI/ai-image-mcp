@@ -118,11 +118,23 @@ export function readImageToBase64(filePath: string): { base64: string; mimeType:
 // --- Local Python sidecar resolution ---
 
 export function resolveMcpRoot(): string {
+	// Explicit override — required when the bundled (compiled) form runs the
+	// MCP from a temp extraction directory where `import.meta.url` no longer
+	// resolves anywhere near the source tree. Set this to a directory that
+	// contains both the `.venv/` and `python/` subdirs (i.e. a copy or
+	// equivalent of the source-tree root).
+	const override = process.env.AI_IMAGE_MCP_ROOT;
+	if (override && fs.existsSync(override)) {
+		return override;
+	}
 	let dir = path.dirname(fileURLToPath(import.meta.url));
 	while (!fs.existsSync(path.join(dir, "package.json"))) {
 		const parent = path.dirname(dir);
 		if (parent === dir) {
-			throw new Error("Could not locate ai-image-mcp root (no package.json found walking upward).");
+			throw new Error(
+				"Could not locate ai-image-mcp root (no package.json found walking upward). " +
+				"If running from a compiled binary, set AI_IMAGE_MCP_ROOT to a directory containing .venv/ and python/.",
+			);
 		}
 		dir = parent;
 	}
