@@ -18,17 +18,17 @@ This server is consumed by AI agents, not humans. Every design decision flows fr
 ```
 src/
 ├── index.ts        # Tool registration + dispatch (thin — no business logic)
-├── utils.ts        # Types, mapping tables, image I/O, Python sidecar resolution
+├── utils.ts        # Types, mapping tables, image I/O, sidecar invocation
 ├── providers/      # AI backends — one file per provider, each exports generate() + edit()
-└── local/          # AI-free backends that run on-machine (may shell out to python/)
+└── local/          # AI-free backends that run on-machine (delegate to the Python sidecar via run-mcp)
 
-python/             # Bundled Python sidecar scripts invoked by src/local/
-└── remove_bg.py    # rembg CLI wrapper
-
-.venv/              # Isolated Python venv provisioned by setup/setup_deps.py
+python/             # Python sidecar source — packaged as a separate MCP (`ai-image-mcp-sidecar`) and embedded in the engine binary alongside the Node bundle
+└── remove_bg.py    # rembg entry script
 ```
 
 All modules import from `utils.ts` only — never from siblings. Local tools SHOULD be preferred over AI providers when a deterministic on-machine solution exists (e.g. background removal via `rembg` beats asking Gemini, which silently fakes transparency).
+
+**Sidecar invocation.** Local tools that need Python spawn the sidecar via the engine's `run-mcp` dispatcher: the Node process calls `<engine.exe> run-mcp ai-image-mcp-sidecar <args...>`. `engine.exe` is resolved via the `EARTHLING_ENGINE_EXE` env var that the dispatcher injects on every spawned child, so the sidecar can re-enter the dispatcher without knowing the install path. The dispatcher decompresses the sidecar source from the engine binary in memory and execs it under the isolated venv at `<workspace>/data/mcp/ai-image-mcp-sidecar/.venv/`.
 
 ## Conventions
 
@@ -64,6 +64,6 @@ Use this pattern when a deterministic on-machine solution exists — image proce
 
 1. Create `src/local/{name}.ts` — export a single function returning `Promise<ImageResult>` (for image outputs) or the appropriate shape
 2. If the tool needs Python, add a CLI script at `python/{name}.py` and append its deps to `python/requirements.txt`
-3. Resolve the bundled Python binary via `resolvePythonBin()` from `utils.ts` (guidance error thrown automatically if the venv is missing)
+3. Spawn the sidecar via the engine dispatcher (`<EARTHLING_ENGINE_EXE> run-mcp ai-image-mcp-sidecar <args...>`) — the dispatcher resolves the venv and decompresses the source in memory
 4. Register in `index.ts` with a Zod schema whose `.describe()` strings steer agents AWAY from equivalent AI-provider tools when the local path is more reliable
-5. Python deps are provisioned by `setup/setup_deps.py` → `_install_ai_image_mcp` (combined npm + uv venv install)
+5. The sidecar's isolated venv is provisioned by `engine setup-deps` from the manifest-inlined `requirements.txt`

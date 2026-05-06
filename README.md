@@ -44,7 +44,7 @@ Remove the background of an image locally via `rembg` — no AI provider, no API
 | `bg_threshold` | int (0–255) | `10` | Alpha-matting background threshold |
 | `erode_size` | int (0–50) | `10` | Alpha-matting erode size (px) |
 
-Backed by a bundled Python sidecar (`python/remove_bg.py`) that runs in an isolated venv at `tools/ai-image-mcp/.venv/`. Provisioned by `setup/setup_deps.py` — no action needed beyond the standard install.
+Backed by a Python sidecar (`python/remove_bg.py`) packaged as a separate MCP (`ai-image-mcp-sidecar`). Inside the Earthling system, both halves' source ships embedded in the engine binary; the sidecar runs in an isolated venv provisioned at `<workspace>/data/mcp/ai-image-mcp-sidecar/.venv/` by `engine setup-deps` and is spawned on demand via the engine's `run-mcp` dispatcher.
 
 ## Providers
 
@@ -68,25 +68,23 @@ Pass API keys as environment variables. At least one provider key is required.
 ```
 src/
 ├── index.ts              # Tool registration + dispatch (thin)
-├── utils.ts              # Types, mapping tables, image I/O, Python sidecar resolution
+├── utils.ts              # Types, mapping tables, image I/O, sidecar invocation
 ├── providers/            # AI providers (network, require API keys)
 │   ├── gemini.ts          # generate() + edit()
 │   ├── openai.ts          # generate() + edit()
 │   └── replicate.ts       # generate() + edit()
 └── local/                # Local dispatchers (no network, no API keys)
-    └── rembg.ts           # removeBackground() — spawns bundled Python sidecar
+    └── rembg.ts           # removeBackground() — invokes the Python sidecar
 
 python/
-├── remove_bg.py          # rembg CLI wrapper, invoked by local/rembg.ts
+├── remove_bg.py          # rembg entry script — packaged as the `ai-image-mcp-sidecar` MCP
 └── requirements.txt      # rembg + onnxruntime + pillow
-
-.venv/                    # Provisioned by setup/setup_deps.py
 ```
 
 - `index.ts` is a thin dispatcher — tool schemas, parameter validation (Zod), and routing. No business logic.
-- `utils.ts` owns all cross-provider concerns — types, mapping tables (`SIZE_MAP`, `QUALITY_MAP`), file I/O, helpers, and the Python-sidecar resolver (`resolvePythonBin`, `resolveRemoveBgScript`).
+- `utils.ts` owns all cross-provider concerns — types, mapping tables (`SIZE_MAP`, `QUALITY_MAP`), file I/O, helpers, and the sidecar invocation helper.
 - Each AI provider under `providers/` exports `generate()` and `edit()`, both returning `ImageResult`.
-- Each local tool under `local/` exports a single function (e.g. `removeBackground()`) that also returns `ImageResult`. Local tools may shell out to a bundled Python sidecar in `.venv/`.
+- Each local tool under `local/` exports a single function (e.g. `removeBackground()`) that also returns `ImageResult`. Local tools spawn the Python sidecar via the host system's MCP dispatcher (in the Earthling system, `<EARTHLING_ENGINE_EXE> run-mcp ai-image-mcp-sidecar`).
 - Everything imports from `utils.ts` only — never from siblings.
 
 ## Response Format

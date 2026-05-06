@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
 // --- Types ---
 
@@ -115,50 +114,3 @@ export function readImageToBase64(filePath: string): { base64: string; mimeType:
 	return { base64: buffer.toString("base64"), mimeType };
 }
 
-// --- Local Python sidecar resolution ---
-
-export function resolveMcpRoot(): string {
-	// Explicit override — required when the bundled (compiled) form runs the
-	// MCP from a temp extraction directory where `import.meta.url` no longer
-	// resolves anywhere near the source tree. Set this to a directory that
-	// contains both the `.venv/` and `python/` subdirs (i.e. a copy or
-	// equivalent of the source-tree root).
-	const override = process.env.AI_IMAGE_MCP_ROOT;
-	if (override && fs.existsSync(override)) {
-		return override;
-	}
-	let dir = path.dirname(fileURLToPath(import.meta.url));
-	while (!fs.existsSync(path.join(dir, "package.json"))) {
-		const parent = path.dirname(dir);
-		if (parent === dir) {
-			throw new Error(
-				"Could not locate ai-image-mcp root (no package.json found walking upward). " +
-				"If running from a compiled binary, set AI_IMAGE_MCP_ROOT to a directory containing .venv/ and python/.",
-			);
-		}
-		dir = parent;
-	}
-	return dir;
-}
-
-export function resolvePythonBin(): string {
-	const root = resolveMcpRoot();
-	const py = process.platform === "win32"
-		? path.join(root, ".venv", "Scripts", "python.exe")
-		: path.join(root, ".venv", "bin", "python");
-	if (!fs.existsSync(py)) {
-		throw new Error(
-			`ai-image-mcp Python sidecar not found at ${py}. ` +
-			"Run `python setup/setup_deps.py` from the project root to provision it.",
-		);
-	}
-	return py;
-}
-
-export function resolveRemoveBgScript(): string {
-	const script = path.join(resolveMcpRoot(), "python", "remove_bg.py");
-	if (!fs.existsSync(script)) {
-		throw new Error(`remove_bg.py not found at ${script}. Reinstall via setup/setup_deps.py.`);
-	}
-	return script;
-}

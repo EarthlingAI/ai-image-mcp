@@ -6,14 +6,14 @@ import type { RemoveBgParams, ImageResult } from "../utils.js";
 import {
 	mimeTypeForFormat,
 	resolveOutputDir,
-	resolvePythonBin,
-	resolveRemoveBgScript,
 	sanitizeFilename,
 } from "../utils.js";
 
 export async function removeBackground(params: RemoveBgParams): Promise<ImageResult> {
-	const python = resolvePythonBin();
-	const script = resolveRemoveBgScript();
+	const enginePath = process.env.EARTHLING_ENGINE_EXE;
+	if (!enginePath) {
+		throw new Error("EARTHLING_ENGINE_EXE not set — ai-image-mcp must be launched via `engine.exe run-mcp ai-image-mcp`.");
+	}
 
 	const src = path.resolve(params.imagePath);
 	if (!fs.existsSync(src)) {
@@ -28,7 +28,7 @@ export async function removeBackground(params: RemoveBgParams): Promise<ImageRes
 	const outPath = path.resolve(outDir, `${Date.now()}-${id}-${hint}-nobg.${params.format}`);
 
 	const args = [
-		script,
+		"run-mcp", "ai-image-mcp-sidecar",
 		"--input", src,
 		"--output", outPath,
 		"--model", params.model,
@@ -39,10 +39,10 @@ export async function removeBackground(params: RemoveBgParams): Promise<ImageRes
 		"--erode-size", String(params.erodeSize),
 	];
 
-	await runPython(python, args);
+	await runEngine(enginePath, args);
 
 	if (!fs.existsSync(outPath)) {
-		throw new Error("remove_bg.py exited successfully but produced no output file.");
+		throw new Error("ai-image-mcp-sidecar exited successfully but produced no output file.");
 	}
 
 	const buffer = fs.readFileSync(outPath);
@@ -53,17 +53,17 @@ export async function removeBackground(params: RemoveBgParams): Promise<ImageRes
 	};
 }
 
-function runPython(python: string, args: string[]): Promise<void> {
+function runEngine(enginePath: string, args: string[]): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(python, args, { windowsHide: true });
+		const child = spawn(enginePath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 		let stderr = "";
-		child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+		child.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
 		child.on("error", (err) => {
-			reject(new Error(`Failed to spawn Python (${python}): ${err.message}`));
+			reject(new Error(`Failed to spawn engine (${enginePath}): ${err.message}`));
 		});
 		child.on("close", (code) => {
 			if (code === 0) resolve();
-			else reject(new Error(`remove_bg.py exited with code ${code}. ${stderr.trim() || "(no stderr)"}`));
+			else reject(new Error(`ai-image-mcp-sidecar exited with code ${code}. ${stderr.trim() || "(no stderr)"}`));
 		});
 	});
 }
